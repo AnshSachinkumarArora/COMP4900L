@@ -2,6 +2,7 @@
 
 //--------------------------------------------------------------
 void ofApp::setup(){
+	//OLD METHOD FOR DRAWING SHORE
 	/* terrainMesh.setMode(OF_PRIMITIVE_TRIANGLES);
 
 	//generate vertices
@@ -42,7 +43,7 @@ void ofApp::setup(){
 		}
 	}*/
 
-	ofSetBackgroundColor(135, 206, 235); // Sky blue
+	ofSetBackgroundColor(ofColor::black);
 	easyCam.setDistance(1000);
 
 	// Generate terrain mesh (grid with noise heights)
@@ -57,7 +58,7 @@ void ofApp::setup(){
 
 			// Color: bluer near shore, sandier inland
 			float shore_t = (y - shoreline_y) / terrain_size;
-			if (shore_t < 0) {
+			if (shore_t > 0) {
 				terrain.addColor(ofColor::navy);
 			} else {
 				terrain.addColor(ofColor::sandyBrown);
@@ -74,6 +75,9 @@ void ofApp::setup(){
 			terrain.addTriangle(i + res + 1, i + 1, i + res + 2);
 		}
 	}
+
+	//generated points
+	points = generatePointSamples(terrain_size, shoreline_y-20, 10.0);
 }
 
 //--------------------------------------------------------------
@@ -85,6 +89,10 @@ void ofApp::update(){
 void ofApp::draw(){
 	easyCam.begin();
 	terrain.draw();
+	ofSetColor(ofColor::red);
+	for (int i = 0; i < points.size(); i++) {
+		ofDrawCircle(points[i].x, points[i].y, 1);
+	}
 	easyCam.end();
 }
 
@@ -93,4 +101,73 @@ float ofApp::getTerrainHeight(float x, float y) {
 	float noise1 = ofNoise(x * 0.005f, y * 0.005f) * 10.0f; // Large waves
 	float noise2 = ofNoise(x * 0.02f, y * 0.02f) * 5.0f; // Small details
 	return slope + noise1 + noise2;
+}
+
+vector<ofVec2f> ofApp::generatePointSamples(float width, float height, float r, float k) {
+	vector<ofVec2f> samples;
+	vector<int> active_list;
+	float cell_size = r / sqrt(2.0f);
+	int grid_cols = ceil(width / cell_size);
+	int grid_rows = ceil(height / cell_size);
+	vector<vector<int>> grid(grid_rows, vector<int>(grid_cols, -1));
+
+	ofVec2f initial(ofRandom(width), ofRandom(height));
+	samples.push_back(initial);
+	int row = floor(initial.y / cell_size);
+	int col = floor(initial.x / cell_size);
+	grid[row][col] = 0;
+	active_list.push_back(0);
+
+	// Step 2: Process active list
+	while (!active_list.empty()) {
+		size_t rand_idx = size_t(ofRandom(active_list.size()));
+		int i = active_list[rand_idx];
+		ofVec2f xi = samples[i];
+		bool found = false;
+
+		for (int attempt = 0; attempt < k; ++attempt) {
+			// Generate candidate in annulus r to 2r
+			float theta = ofRandom(TWO_PI);
+			float dist = ofRandom(r, 2 * r);
+			ofVec2f candidate = xi + ofVec2f(dist * cos(theta), dist * sin(theta));
+
+			// Check bounds
+			if (candidate.x < 0 || candidate.x >= width || candidate.y < 0 || candidate.y >= height) continue;
+
+			// Check nearby samples
+			int crow = floor(candidate.y / cell_size);
+			int ccol = floor(candidate.x / cell_size);
+			bool valid = true;
+			int search_radius = 2; // Sufficient for cell_size = r/sqrt(2)
+			for (int dy = -search_radius; dy <= search_radius && valid; ++dy) {
+				for (int dx = -search_radius; dx <= search_radius && valid; ++dx) {
+					int nrow = crow + dy;
+					int ncol = ccol + dx;
+					if (nrow >= 0 && nrow < grid_rows && ncol >= 0 && ncol < grid_cols) {
+						int sidx = grid[nrow][ncol];
+						if (sidx != -1 && samples[sidx].distance(candidate) < r) {
+							valid = false;
+						}
+					}
+				}
+			}
+
+			if (valid) {
+				int newidx = samples.size();
+				samples.push_back(candidate);
+				grid[crow][ccol] = newidx;
+				active_list.push_back(newidx);
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			// Remove from active list (swap and pop)
+			active_list[rand_idx] = active_list.back();
+			active_list.pop_back();
+		}
+	}
+
+	return samples;
 }
